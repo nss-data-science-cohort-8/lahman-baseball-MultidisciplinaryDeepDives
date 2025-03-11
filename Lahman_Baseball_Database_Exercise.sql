@@ -377,6 +377,7 @@ FROM cte3;
 
 --6. Which managers have won the TSN Manager of the Year award in both the National League (NL) and the American League (AL)? Give their full name and the teams that they were managing when they won the award.
 
+
 WITH CTE1 AS(
 	SELECT *
 	FROM awardsmanagers
@@ -387,7 +388,7 @@ CTE2 AS(
 	FROM awardsmanagers
 	WHERE lgid = 'NL' AND awardid = 'TSN Manager of the Year'
 	)
-SELECT DISTINCT m.playerID, pp.namefirst, pp.namelast, m.teamID
+SELECT DISTINCT m.playerID, pp.namefirst, pp.namelast, m.teamID, m.lgid
 FROM people AS pp
 INNER JOIN CTE1 AS c1
 	USING (playerid)
@@ -395,21 +396,23 @@ INNER JOIN CTE2 AS c2
 	USING (playerid)
 INNER JOIN Managers AS m 
 	ON m.playerID = c2.playerID 
-		AND m.yearID = c2.yearID
 ORDER BY playerID
 ; 
+
+
+ 
 
 
 
 
 --7. Which pitcher was the least efficient in 2016 in terms of salary / strikeouts? Only consider pitchers who started at least 10 games (across all teams). Note that pitchers often play for more than one team in a season, so be sure that you are counting all stats for each player.
-
+--Ans: Matt Cain
 
 WITH CTE1 AS (
 	SELECT DISTINCT playerID, SUM(p.gs) AS Total_Game_Started, SUM(so) AS Total_Strike_Outs
 	FROM pitching AS p
-	WHERE yearid = 2016 
-	GROUP BY playerID, p.gs
+	WHERE yearid = 2016
+	GROUP BY playerID
 	)
 SELECT DISTINCT pp.playerID, namefirst, namelast, SUM(salary) / CTE1.Total_Strike_Outs AS USD_per_Strike_Out
 FROM people AS pp
@@ -417,31 +420,33 @@ INNER JOIN salaries AS sal
 	USING (playerID)
 INNER JOIN CTE1
 	USING (playerID)
-WHERE sal.yearid = 2016 
+WHERE sal.yearid = 2016
 	AND CTE1.Total_Game_Started >= 10
 GROUP BY pp.playerID, namefirst, namelast, CTE1.Total_Strike_Outs
 ORDER BY USD_per_Strike_Out DESC
-;
+; 
 
- 
+
 
 
 
 --8. Find all players who have had at least 3000 career hits. Report those players' names, total number of hits, and the year they were inducted into the hall of fame (If they were not inducted into the hall of fame, put a null in that column.) Note that a player being inducted into the hall of fame is indicated by a 'Y' in the inducted column of the halloffame table.
+
 
 WITH CTE1 AS (
 	SELECT playerID, SUM(h) AS Career_Hits
 	FROM batting
 	GROUP BY playerID
 	)
-SELECT pp.playerID, namefirst, namelast, Career_Hits, inducted, hf.yearID AS Year_of_Induction_Into_Hall_of_Fame, (CASE WHEN inducted = 'Y' THEN hf.yearID ELSE NULL END) AS Year_of_Induction
+SELECT DISTINCT pp.playerID, namefirst, namelast, SUM(Career_Hits), MIN((CASE WHEN inducted = 'Y' THEN hf.yearID ELSE NULL END)) AS Year_of_Induction
 FROM CTE1 AS c1
 INNER JOIN people AS pp
 	USING (playerID)
 LEFT JOIN halloffame AS hf
 	USING (playerID)
-WHERE Career_Hits >= 3000
-ORDER BY Career_Hits DESC
+WHERE Career_Hits >= 3000 
+GROUP BY pp.playerID
+ORDER BY SUM(Career_Hits) DESC
 ;
 
 
@@ -490,47 +495,46 @@ ORDER BY playerID
 
 
 WITH CTE1 AS (
-	SELECT playerID, yearID, SUM(hr) AS Num_of_Homeruns_This_Yr
-	FROM batting 
-	GROUP BY playerID, yearID  -- Aggregating Num of Homeruns by year
-	ORDER BY SUM(hr) DESC
+	SELECT b.playerID, b.yearID, SUM(b.hr) AS Num_of_Homeruns_This_Yr
+	FROM batting AS b
+	GROUP BY b.playerID, b.yearID  -- Aggregating Num of Homeruns by year
+	ORDER BY SUM(b.hr) DESC
 	),
 CTE2 AS (
-	SELECT c1.playerID, c1.yearID, Num_of_Homeruns_This_Yr
+	SELECT c1.playerID, MAX(Num_of_Homeruns_This_Yr) AS Career_Max_Yearly_Homeruns
 	FROM CTE1 AS c1
-	WHERE c1.yearID = 2016
-	GROUP BY c1.playerID, c1.yearID, Num_of_Homeruns_This_Yr  
-	ORDER BY Num_of_Homeruns_This_Yr DESC
+	GROUP BY c1.playerID
 	),
 CTE3 AS (
-	SELECT c1.playerID, c1.yearID, MAX(Num_of_Homeruns_This_Yr) AS Max_Num_of_HomeRuns_This_Year
-	FROM CTE1 AS c1
-	GROUP BY c1.playerID, c1.yearID
-	ORDER BY MAX(Num_of_Homeruns_This_Yr) DESC
-	),
+	SELECT DISTINCT pp.playerID, pp.namefirst, pp.namelast
+	FROM people AS pp 
+	), 
 CTE4 AS (
-	SELECT yearid, playerid, COUNT(playerid) AS Num_of_Appearances_This_Yr
+	SELECT yearID, playerID, COUNT(playerID) AS Num_of_Appearances_This_Yr
 	FROM appearances 
 	GROUP BY yearid, playerid
 	),
 CTE5 AS (
-	SELECT playerid, SUM(CASE WHEN c4.Num_of_Appearances_This_Yr > 0 THEN 1 ELSE 0 END) AS Years_Played
+	SELECT playerID, SUM(CASE WHEN c4.Num_of_Appearances_This_Yr > 0 THEN 1 ELSE 0 END) AS Years_Played
 	FROM CTE4 AS c4 
-	GROUP BY playerid
+	GROUP BY playerID
 	),	
 CTE6 AS (
-	SELECT playerid, Years_Played
-	FROM CTE5
-	WHERE Years_Played >= 10
-	GROUP BY playerid, Years_Played
+	SELECT DISTINCT c5.playerID, c3.namefirst, c3.namelast
+	FROM CTE5 AS c5
+	INNER JOIN CTE3 AS c3
+		USING (playerID)
+	WHERE c5.Years_Played >= 10
+	GROUP BY c5.playerid, c5.Years_Played, c3.namefirst, c3.namelast
 	)
-SELECT *
-FROM CTE3 AS c3
-INNER JOIN CTE6 AS c6
-	USING (playerID) 
+SELECT c6.playerID, c6.namefirst, c6.namelast, c1.yearID, c1.Num_of_Homeruns_This_Yr, c2.Career_Max_Yearly_Homeruns 
+FROM CTE6 AS c6
+INNER JOIN CTE1 AS C1
+	USING (playerID)
 INNER JOIN CTE2 AS c2
-	USING (playerID, yearID)
-WHERE Num_of_Homeruns_This_Yr > 0
+	ON c1.playerID = c2.playerID AND c1.Num_of_Homeruns_This_Yr = c2.Career_Max_Yearly_Homeruns 
+WHERE c1.yearID = 2016 AND c1.Num_of_Homeruns_This_Yr > 0
+ORDER BY c1.playerID
 ; 
 
 
